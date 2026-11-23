@@ -1,58 +1,82 @@
-TO BE CONTINUED ... last modified 23/11/2026 
+# Serving a Website on an Azure VM with Nginx
 
-PRACTICING SERVING A WEBSITE USING VM AND NGINX AS A WEB SERVER.
+> Work in progress. Last modified: 23/11/2026
 
-First things first 
+A practice project: hosting a small type-the-words browser game on an Ubuntu
+VM, served by Nginx over HTTPS with a DuckDNS domain.
 
-I have created a small game-self-contained-like html file using AI.
-The game is a type-the-words-kind of mini-game.
-After copying the .html locally I then created the projects folder to get things started using WSL.
+## What I built
 
-Installed Nginx;
-Located Nginx configuration files;
-set the website root to /var/www/mywebsite;
-configured listen to port 80, 22 and 443;
-configured server name after acquiring a sub-domain from DUCKDNS
-self-signed certification
-Configured Firewall 
-Test the Nginx configuration for validation
-Reloaded Nginx and run it locally to verify integrity 
+- Single-file HTML mini-game (created with AI)
+- Ubuntu VM on Azure (Standard B2ats v2, 2 vCPUs, 1 GiB RAM)
+- Nginx web server with a self-signed certificate
+- Free subdomain from DuckDNS
+- Azure inbound rules for SSH, HTTP and HTTPS
 
-PROBLEMS
-I run into a few problems, Nginx worked well on the computer, ports and firewall rules were set correctly and even after turning off firewall I could not get it to work on my personal phone.
-Computer and phone was on the same network.
-After a few failed attempts at getting it to work I created a Azure subscription and followed the same steps.
+## First attempt: WSL (local)
 
-Creation of VM  
-VM details: Standard B2ats v2 - vCpus 2 -RAM 1 GiB - Ubuntu image
+I installed Nginx on WSL Ubuntu, set the site root, configured the firewall
+and verified the site worked on my computer. It never loaded on my phone,
+even on the same network and with the firewall off, so I moved the project to
+a cloud VM.
 
-Ran into a few problems. Azure has quota limits due to the abuse of cryptocurrency bots, which limited the use of "B" virtual machines-cheaper than others. 
-Requested extra use of the VM for this project.
+## Setup on Azure
 
-Opened ports
-Add Inbound rules 22 to SSH in, 80 for HTTP requests and 443 for later HTTPS
+### 1. Create the VM
 
-Copied local html files to the VM using: 
-scp -i wherekeyis wherelocalfileis azureuseraandpublicvmip:~/pathinvm
-scp i ~/.ssh/az_lab.pem index.html azureuser@20.xxx.xxx.65:~/projeto/gamelab
+Ubuntu image, size Standard B2ats v2. Azure applies default vCPU quotas to
+new subscriptions, which blocked this B-series size, so I submitted a quota
+increase request.
 
-Finding where nginx files are: 
-etc/nginx/sites-available/default
-Open default file using sudo vim, nano or vi
+### 2. Open ports
 
-CHANGES TO BE MADE INSIDE DEFAULT 
-* SET ROOT /VAR/WWW/
-set root /var/www/mywebsite - /mywebsite here is the folder you create yourself inside the /var/www/ containing your website files e.g. index.html, main.css, JS
+Added inbound rules: 22 (SSH), 80 (HTTP), 443 (HTTPS).
 
-* SERVER_NAME - Add your own domain 
-remove the # Hashtags from both 443 SSL default server
-add the ssl_certificate keys after generating one
-$ sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 -subj "/CN=localhost" -keyout /etc/ssl/private/mywebsite.key -out /etc/ssl/certs/mywebsite.crt
+### 3. Copy the site to the VM
 
-Test Nginx configuration
-$ sudo nginx -t && sudo systemctl reload nginx
-Expected results: syntax is ok / test is successful
+```bash
+scp -i ~/.ssh/<key>.pem index.html azureuser@<VM-IP>:~/projeto/gamelab
+```
 
-Testing it locally
-curl -kI https://yourdomain.org 
-Expect results : HTTP/1.1 200 
+Then, on the VM, move the files to the web root:
+
+```bash
+sudo mkdir -p /var/www/mywebsite
+sudo cp ~/projeto/gamelab/index.html /var/www/mywebsite/
+```
+
+### 4. Generate a self-signed certificate
+```bash
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -subj "/CN=fugadigitada.duckdns.org" \
+  -keyout /etc/ssl/private/mywebsite.key \
+  -out /etc/ssl/certs/mywebsite.crt
+```
+
+### 5. Configure Nginx
+Edit  `/etc/nginx/sites-available/default`:
+
+-`root /var/www/mywebsite;`
+-`server_name fugadigitada.duckdns.org;`
+- Uncomment the 443 SSL server block and set:
+  - `ssl_certificate /etc/ssl/certs/mywebsite.crt;`
+  - `ssl_certificate /etc/ssl/private/mywebsite.key;`
+
+  ### 6. Validate and reload
+
+  ```bash
+  sudo nginx -t && sudo systemctl  reload nginx
+  ```
+
+  Expect output: `syntax is ok` and `test is successful`.
+
+  ### Testing
+  From outside the VM:
+  
+  ```bash
+  curl -kI https://fugadigitada.duck.dns.org
+  ```
+
+  Expect result:`HTTP/1.1 200 OK`. (`-k` is needed because the certificate
+  is self-signed.) I also opened the site on my phone, where the browser shows
+  an untrusted-certificate warning, as expected.
